@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XE9680 GPU 映射查询程序 - Wharton Wang v1.7</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1c23; /* 深色背景，更像服务器控制台 */
+            color: #e2e8f0;
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --- GPU 拟物化样式 --- */
+        .gpu-module {
+            /* 黑色散热器背景 */
+            background-color: #0f0f0f;
+            background-image: repeating-linear-gradient(
+                0deg,
+                #0f0f0f,
+                #0f0f0f 4px,
+                #2a2a2a 4px,
+                #2a2a2a 5px
+            );
+            border: 1px solid #333;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        /* 中间的金属盖板 (参考 H200 的香槟金/银色) */
+        .gpu-plate {
+            background: linear-gradient(180deg, #e3dfce 0%, #f7f4e6 50%, #cfcaba 100%);
+            border-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.8);
+            color: #333;
+            transition: all 0.3s ease;
+        }
+
+        /* 螺丝钉装饰 */
+        .screw {
+            width: 6px;
+            height: 6px;
+            background: radial-gradient(circle at 30% 30%, #fff, #555);
+            border-radius: 50%;
+            position: absolute;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.4);
+        }
+        .screw-tl { top: 6px; left: 6px; }
+        .screw-tr { top: 6px; right: 6px; }
+        .screw-bl { bottom: 6px; left: 6px; }
+        .screw-br { bottom: 6px; right: 6px; }
+
+        /* 选中高亮状态 */
+        .gpu-module.active {
+            transform: scale(1.05);
+            border-color: #ef4444;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.6); /* 红色辉光 */
+            z-index: 10;
+        }
+        .gpu-module.active .gpu-plate {
+            /* 盖板变红 */
+            background: linear-gradient(180deg, #fecaca 0%, #fee2e2 50%, #f87171 100%);
+        }
+        .gpu-module.active .bus-id {
+            color: #991b1b;
+            text-shadow: 0 1px 0 rgba(255,255,255,0.4);
+        }
+
+        /* 垂直文字样式 */
+        .writing-vertical-rl {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-10 px-4">
+
+    <!-- 标题区域 -->
+    <header class="text-center mb-6 w-full max-w-6xl">
+        <h1 class="text-4xl font-extrabold text-white mb-2 tracking-tight">Dell XE9680 GPU 映射查询程序</h1>
+        <p class="text-sm text-gray-400">Wharton Wang v1.7</p>
+        <p class="text-gray-500 mt-4 w-full text-sm whitespace-nowrap overflow-hidden text-ellipsis">
+            查询操作系统 ID 与物理 GPU 位置的对应关系。输入任意字段值（如 "0", "gpu1", "3B"）即可高亮显示物理模组。
+        </p>
+    </header>
+
+    <!-- 搜索区域 (间距缩小 mb-12 -> mb-6) -->
+    <div class="w-full max-w-md mb-6">
+        <div class="relative group">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg class="h-5 w-5 text-gray-400 group-focus-within:text-green-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+            </div>
+            <input 
+                type="text" 
+                id="searchInput"
+                class="block w-full pl-10 pr-4 py-3 border-2 border-gray-600 rounded-lg leading-5 bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:border-green-500 focus:ring-1 focus:ring-green-500 sm:text-lg transition duration-150 ease-in-out shadow-lg"
+                placeholder="输入 Bus ID (如 3B), GPU ID..."
+                autofocus
+            >
+            <div class="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <span id="clearBtn" class="cursor-pointer text-gray-400 hover:text-white hidden">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主内容区 (间距缩小 gap-12 -> gap-8) -->
+    <div class="flex flex-col lg:flex-row w-full max-w-7xl gap-8 items-start justify-center">
+        
+        <!-- 左侧：GPU 物理位置示意图 -->
+        <div class="w-full max-w-lg flex-shrink-0">
+            <h3 class="text-gray-400 font-bold mb-6 text-center text-lg tracking-wide uppercase">GPU 物理位置示意图</h3>
+            
+            <!-- 示意图容器：包含左右方向标识 -->
+            <div class="flex items-center justify-center gap-6">
+                
+                <!-- 左侧标识：后 (Rear) -->
+                <div class="flex flex-col items-center justify-center h-full text-gray-500 font-bold text-lg">
+                    <div class="border-r-2 border-gray-700 pr-3 h-80 flex items-center writing-vertical-rl">
+                        后 (Rear)
+                    </div>
+                </div>
+
+                <!-- 核心网格图 -->
+                <div class="bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 flex-1 relative">
+                    <!-- 顶部装饰线 -->
+                    <div class="absolute top-0 left-1/2 transform -translate-x-1/2 w-1/3 h-1 bg-gray-700 rounded-b"></div>
+
+                    <!-- 2 列布局 (纵向间隔缩小 gap-4 -> gap-3) -->
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-3 text-center">
+                        
+                        <!-- GPU 模块 (高度缩小 h-32 -> h-24) -->
+                        <div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24" data-module-id="gpu2">
+                            <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                                <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                                <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                                <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">19</span>
+                                <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU 2</span><span class="text-[9px] text-gray-500">Slot 28</span></div>
+                            </div>
+                        </div>
+                        <div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24" data-module-id="gpu4">
+                            <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                                <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                                <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                                <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">3B</span>
+                                <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU 4</span><span class="text-[9px] text-gray-500">Slot 24</span></div>
+                            </div>
+                        </div>
+
+                        <!-- 第二行 -->
+                        <div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24" data-module-id="gpu3">
+                            <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                                <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                                <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                                <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">5D</span>
+                                <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU 3</span><span class="text-[9px] text-gray-500">Slot 27</span></div>
+                            </div>
+                        </div>
+                        <div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24" data-module-id="gpu1">
+                            <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                                <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                                <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                                <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">4C</span>
+                                <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU 1</span><span class="text-[9px] text-gray-500">Slot 23</span></div>
+                            </div>
+                        </div>
+
+                        <!-- 第三行 -->
+                        <div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24" data-module-id="gpu6">
+                            <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                                <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                                <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                                <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">CB</span>
+                                <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU 6</span><span class="text-[9px] text-gray-500">Slot 26</span></div>
+                            </div>
+                        </div>
+                        <div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24" data-module-id="gpu8">
+                            <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                                <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                                <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                                <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">DB</span>
+                                <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU 8</span><span class="text-[9px] text-gray-500">Slot 22</span></div>
+                            </div>
+                        </div>
+
+                        <!-- 第四行 -->
+                        <div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24" data-module-id="gpu7">
+                            <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                                <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                                <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                                <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">9B</span>
+                                <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU 7</span><span class="text-[9px] text-gray-500">Slot 25</span></div>
+                            </div>
+                        </div>
+                        <div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24" data-module-id="gpu5">
+                            <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                                <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                                <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                                <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">BB</span>
+                                <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU 5</span><span class="text-[9px] text-gray-500">Slot 21</span></div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- 右侧标识：前 (Front) -->
+                <div class="flex flex-col items-center justify-center h-full text-gray-500 font-bold text-lg">
+                    <div class="border-l-2 border-gray-700 pl-3 h-80 flex items-center writing-vertical-rl">
+                        前 (Front)
+                    </div>
+                </div>
+
+            </div>
+            
+            <p class="text-xs text-gray-500 mt-4 text-center">* 红色高亮表示当前查询匹配的 GPU 位置</p>
+        </div>
+
+        <!-- 右侧：结果详情展示区域 -->
+        <div class="flex-1 w-full">
+            <h3 class="text-gray-400 font-bold mb-4 text-center md:text-left text-lg tracking-wide uppercase">查询结果详情</h3>
+            <div id="resultsContainer" class="grid grid-cols-1 gap-4">
+                <!-- 结果卡片将通过 JS 插入这里 -->
+                <div class="bg-gray-800 rounded-xl border border-gray-700 p-10 text-center text-gray-500 italic shadow-inner text-xl">
+                    请输入查询条件以显示详细信息...
+                </div>
+            </div>
+
+             <!-- 字段说明 -->
+            <div class="mt-8 text-base text-gray-400 bg-gray-800 p-6 rounded-xl shadow-md border border-gray-700">
+                <h3 class="font-bold text-gray-200 mb-3 border-b border-gray-600 pb-2 text-lg">字段说明:</h3>
+                <ul class="space-y-2 list-disc list-inside text-sm">
+                    <li><span class="font-semibold text-gray-300">Minor Number:</span> 操作系统内的设备ID</li>
+                    <li><span class="font-semibold text-gray-300">Module ID:</span> GPU模块的物理ID</li>
+                    <li><span class="font-semibold text-gray-300">Slot:</span> GPU所在的物理槽位</li>
+                    <li><span class="font-semibold text-gray-300">Bus ID:</span> GPU的PCIe总线地址 (Hex)</li>
+                    <li><span class="font-semibold text-gray-300">PSB:</span> 所属的PSB板</li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // 1. 数据定义 (对应 Rust 中的 struct 和 const DATA)
+        const gpuData = [
+            { minor_number: "0", bus_id: "19", module_id: "gpu2", slot: "s28", psb: "psb1" },
+            { minor_number: "1", bus_id: "3B", module_id: "gpu4", slot: "s24", psb: "psb1" },
+            { minor_number: "2", bus_id: "4C", module_id: "gpu1", slot: "s23", psb: "psb2" },
+            { minor_number: "3", bus_id: "5D", module_id: "gpu3", slot: "s27", psb: "psb2" },
+            // 修正 PSB3 和 PSB4 的映射
+            { minor_number: "4", bus_id: "9B", module_id: "gpu7", slot: "s25", psb: "psb4" }, 
+            { minor_number: "5", bus_id: "BB", module_id: "gpu5", slot: "s21", psb: "psb4" }, 
+            { minor_number: "6", bus_id: "CB", module_id: "gpu6", slot: "s26", psb: "psb3" }, 
+            { minor_number: "7", bus_id: "DB", module_id: "gpu8", slot: "s22", psb: "psb3" }, 
+        ];
+
+        // 字段标签映射
+        const fieldLabels = {
+            minor_number: "Minor Number",
+            bus_id: "Bus ID",
+            module_id: "Module ID",
+            slot: "Slot",
+            psb: "PSB"
+        };
+
+        const searchInput = document.getElementById('searchInput');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const clearBtn = document.getElementById('clearBtn');
+        
+        // 获取所有示意图中的 GPU 盒子
+        const visualBoxes = document.querySelectorAll('.gpu-module');
+
+        // 2. 搜索逻辑
+        function performSearch(query) {
+            resultsContainer.innerHTML = ''; // 清空结果
+            
+            visualBoxes.forEach(box => box.classList.remove('active'));
+
+            if (!query) {
+                clearBtn.classList.add('hidden');
+                // 恢复默认提示
+                resultsContainer.innerHTML = '<div class="bg-gray-800 rounded-xl border border-gray-700 p-10 text-center text-gray-500 italic shadow-inner text-xl">请输入查询条件以显示详细信息...</div>';
+                return;
+            }
+            clearBtn.classList.remove('hidden');
+
+            const normalizedQuery = query.trim().toLowerCase();
+
+            // 模糊匹配逻辑
+            const matches = gpuData.filter(item => {
+                return Object.values(item).some(val => val.toLowerCase() === normalizedQuery);
+            });
+
+            if (matches.length === 0) {
+                resultsContainer.innerHTML = `
+                    <div class="col-span-full text-center py-10 text-gray-400 bg-gray-800 rounded-lg shadow border border-gray-700 text-xl">
+                        <p>未找到匹配项: "${query}"</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // 3. 渲染结果并高亮示意图
+            matches.forEach(item => {
+                // 3.1 高亮示意图中的对应模块
+                // 使用 module_id (如 gpu4) 来匹配 HTML 中的 data-module-id 属性
+                const targetBox = document.querySelector(`.gpu-module[data-module-id="${item.module_id}"]`);
+                if (targetBox) {
+                    targetBox.classList.add('active');
+                }
+
+                // 3.2 渲染详情卡片 (增大字体，暗色主题)
+                const card = document.createElement('div');
+                card.className = 'bg-gray-800 rounded-xl shadow-lg border-l-8 border-green-500 p-8 fade-in hover:shadow-xl transition-shadow border border-gray-700';
+                
+                let htmlContent = '<div class="grid grid-cols-2 gap-y-4 text-xl">'; 
+                
+                for (const [key, value] of Object.entries(item)) {
+                    const isMatched = value.toLowerCase() === normalizedQuery;
+                    const valueClass = isMatched 
+                        ? 'font-extrabold text-green-400 bg-green-900 bg-opacity-30 px-3 py-0.5 rounded inline-block text-2xl' 
+                        : 'text-gray-200 font-semibold';
+
+                    htmlContent += `
+                        <div class="text-gray-400 flex items-center font-medium">${fieldLabels[key]}:</div>
+                        <div class="text-right sm:text-left"><span class="${valueClass}">${value}</span></div>
+                    `;
+                }
+                
+                htmlContent += '</div>';
+                card.innerHTML = htmlContent;
+                resultsContainer.appendChild(card);
+            });
+        }
+
+        // 事件监听
+        searchInput.addEventListener('input', (e) => {
+            performSearch(e.target.value);
+        });
+
+        clearBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            performSearch('');
+            searchInput.focus();
+        });
+
+    </script>
+</body>
+</html>
