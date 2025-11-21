@@ -28,6 +28,7 @@ fn main() -> wry::Result<()> {
     let window = WindowBuilder::new()
         .with_title("Dell XE9680 GPU 映射查询程序 - Wharton Wang v1.7")
         .with_inner_size(wry::application::dpi::LogicalSize::new(1400.0, 900.0))
+        .with_maximized(true)
         .build(&event_loop)?;
 
     // GPU 数据
@@ -93,6 +94,28 @@ fn main() -> wry::Result<()> {
     // 将数据嵌入到 HTML 中
     let gpu_data_json = serde_json::to_string(&gpu_data).unwrap();
     
+    // 预渲染 GPU 网格 HTML
+    let gpu_layout = ["gpu2", "gpu4", "gpu3", "gpu1", "gpu6", "gpu8", "gpu7", "gpu5"];
+    let mut gpu_grid_html = String::new();
+    
+    for module_id in gpu_layout.iter() {
+        if let Some(gpu) = gpu_data.iter().find(|g| g.module_id == *module_id) {
+            let gpu_number = module_id.trim_start_matches("gpu");
+            let slot_number = gpu.slot.trim_start_matches('s');
+            
+            gpu_grid_html.push_str(&format!(
+                r#"<div class="gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-28 w-full" data-module-id="{module}">
+                    <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
+                        <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
+                        <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
+                        <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">{bus}</span>
+                        <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU {num}</span><span class="text-[9px] text-gray-500">Slot {slot}</span></div>
+                    </div>
+                </div>"#, module=module_id, bus=gpu.bus_id, num=gpu_number, slot=slot_number)
+            );
+        }
+    }
+    
     // 完整的 HTML 内容（内联所有资源）
     let html = format!(r#"
 <!DOCTYPE html>
@@ -101,13 +124,209 @@ fn main() -> wry::Result<()> {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XE9680 GPU 映射查询程序</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #1a1c23;
             color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2.5rem 1rem;
         }}
+
+        .min-h-screen {{ min-height: 100vh; }}
+        .flex {{ display: flex; }}
+        .flex-col {{ flex-direction: column; }}
+        .flex-row {{ flex-direction: row; }}
+        .items-center {{ align-items: center; }}
+        .items-start {{ align-items: flex-start; }}
+        .justify-center {{ justify-content: center; }}
+        .text-center {{ text-align: center; }}
+        .text-right {{ text-align: right; }}
+        .text-left {{ text-align: left; }}
+        .gap-1 {{ gap: 0.25rem; }}
+        .gap-3 {{ gap: 0.75rem; }}
+        .gap-4 {{ gap: 1rem; }}
+        .gap-6 {{ gap: 1.5rem; }}
+        .gap-8 {{ gap: 2rem; }}
+        .gap-x-4 {{ column-gap: 1rem; }}
+        .gap-y-3 {{ row-gap: 0.75rem; }}
+        .gap-y-4 {{ row-gap: 1rem; }}
+        .mb-0\.5 {{ margin-bottom: 0.125rem; }}
+        .mb-2 {{ margin-bottom: 0.5rem; }}
+        .mb-3 {{ margin-bottom: 0.75rem; }}
+        .mb-4 {{ margin-bottom: 1rem; }}
+        .mb-6 {{ margin-bottom: 1.5rem; }}
+        .mt-0\.5 {{ margin-top: 0.125rem; }}
+        .mt-4 {{ margin-top: 1rem; }}
+        .mt-8 {{ margin-top: 2rem; }}
+        .p-2 {{ padding: 0.5rem; }}
+        .p-4 {{ padding: 1rem; }}
+        .p-6 {{ padding: 1.5rem; }}
+        .p-8 {{ padding: 2rem; }}
+        .p-10 {{ padding: 2.5rem; }}
+        .px-3 {{ padding-left: 0.75rem; padding-right: 0.75rem; }}
+        .px-4 {{ padding-left: 1rem; padding-right: 1rem; }}
+        .py-0\.5 {{ padding-top: 0.125rem; padding-bottom: 0.125rem; }}
+        .py-3 {{ padding-top: 0.75rem; padding-bottom: 0.75rem; }}
+        .py-10 {{ padding-top: 2.5rem; padding-bottom: 2.5rem; }}
+        .pl-3 {{ padding-left: 0.75rem; }}
+        .pl-10 {{ padding-left: 2.5rem; }}
+        .pr-3 {{ padding-right: 0.75rem; }}
+        .pr-4 {{ padding-right: 1rem; }}
+        .pb-2 {{ padding-bottom: 0.5rem; }}
+        .w-full {{ width: 100%; }}
+        .w-1\/3 {{ width: 33.333%; }}
+        .w-3 {{ width: 0.75rem; }}
+        .w-5 {{ width: 1.25rem; }}
+        .h-1 {{ height: 0.25rem; }}
+        .h-3 {{ height: 0.75rem; }}
+        .h-5 {{ height: 1.25rem; }}
+        .h-24 {{ height: 6rem; }}
+        .h-80 {{ height: 20rem; }}
+        .h-full {{ height: 100%; }}
+        .max-w-md {{ max-width: 28rem; }}
+        .max-w-lg {{ max-width: 32rem; }}
+        .max-w-xl {{ max-width: 36rem; }}
+        .max-w-2xl {{ max-width: 42rem; }}
+        .max-w-3xl {{ max-width: 48rem; }}
+        .max-w-4xl {{ max-width: 56rem; }}
+        .max-w-6xl {{ max-width: 72rem; }}
+        .max-w-7xl {{ max-width: 80rem; }}
+        .flex-1 {{ flex: 1 1 0%; }}
+        .flex-shrink-0 {{ flex-shrink: 0; }}
+        .grid {{ display: grid; }}
+        .grid-cols-1 {{ grid-template-columns: repeat(1, minmax(0, 1fr)); }}
+        .grid-cols-2 {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+        .rounded {{ border-radius: 0.25rem; }}
+        .rounded-lg {{ border-radius: 0.5rem; }}
+        .rounded-xl {{ border-radius: 0.75rem; }}
+        .rounded-2xl {{ border-radius: 1rem; }}
+        .rounded-b {{ border-bottom-left-radius: 0.25rem; border-bottom-right-radius: 0.25rem; }}
+        .border {{ border-width: 1px; border-style: solid; }}
+        .border-2 {{ border-width: 2px; border-style: solid; }}
+        .border-l-2 {{ border-left-width: 2px; border-left-style: solid; }}
+        .border-r-2 {{ border-right-width: 2px; border-right-style: solid; }}
+        .border-b {{ border-bottom-width: 1px; border-bottom-style: solid; }}
+        .border-l-8 {{ border-left-width: 8px; border-left-style: solid; }}
+        .border-amber-500 {{ border-color: #F59E0B; }}
+        .border-gray-600 {{ border-color: #4B5563; }}
+        .border-gray-700 {{ border-color: #374151; }}
+        .border-gray-800 {{ border-color: #1F2937; }}
+        .bg-gray-700 {{ background-color: #374151; }}
+        .bg-gray-800 {{ background-color: #1F2937; }}
+        .bg-gray-900 {{ background-color: #111827; }}
+        .bg-green-900 {{ background-color: #064E3B; }}
+        .border-green-500 {{ border-color: #10B981; }}
+        .shadow-inner {{ box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05); }}
+        .shadow-md {{ box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }}
+        .shadow-lg {{ box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }}
+        .shadow-xl {{ box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); }}
+        .shadow-2xl {{ box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); }}
+        .text-xs {{ font-size: 0.75rem; line-height: 1rem; }}
+        .text-sm {{ font-size: 0.875rem; line-height: 1.25rem; }}
+        .text-base {{ font-size: 1rem; line-height: 1.5rem; }}
+        .text-lg {{ font-size: 1.125rem; line-height: 1.75rem; }}
+        .text-xl {{ font-size: 1.25rem; line-height: 1.75rem; }}
+        .text-2xl {{ font-size: 1.5rem; line-height: 2rem; }}
+        .text-4xl {{ font-size: 2.25rem; line-height: 2.5rem; }}
+        .text-\[9px\] {{ font-size: 9px; }}
+        .text-\[10px\] {{ font-size: 10px; }}
+        .font-medium {{ font-weight: 500; }}
+        .font-semibold {{ font-weight: 600; }}
+        .font-bold {{ font-weight: 700; }}
+        .font-extrabold {{ font-weight: 800; }}
+        .font-black {{ font-weight: 900; }}
+        .font-mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
+        .text-white {{ color: #fff; }}
+        .text-gray-200 {{ color: #E5E7EB; }}
+        .text-gray-300 {{ color: #D1D5DB; }}
+        .text-gray-400 {{ color: #9CA3AF; }}
+        .text-gray-500 {{ color: #6B7280; }}
+        .text-gray-600 {{ color: #4B5563; }}
+        .text-gray-700 {{ color: #374151; }}
+        .text-gray-800 {{ color: #1F2937; }}
+        .text-amber-400 {{ color: #FBBF24; }}
+        .text-green-400 {{ color: #34D399; }}
+        .text-red-500 {{ color: #EF4444; }}
+        .border-red-500 {{ border-color: #EF4444; }}
+        .bg-red-900.bg-opacity-20 {{ background-color: rgba(127, 29, 29, 0.2); }}
+        .uppercase {{ text-transform: uppercase; }}
+        .italic {{ font-style: italic; }}
+        .tracking-tight {{ letter-spacing: -0.025em; }}
+        .tracking-wide {{ letter-spacing: 0.025em; }}
+        .tracking-wider {{ letter-spacing: 0.05em; }}
+        .tracking-widest {{ letter-spacing: 0.1em; }}
+        .leading-tight {{ line-height: 1.25; }}
+        .leading-5 {{ line-height: 1.25rem; }}
+        .opacity-60 {{ opacity: 0.6; }}
+        .list-disc {{ list-style-type: disc; }}
+        .list-inside {{ list-style-position: inside; }}
+        .space-y-2 > * + * {{ margin-top: 0.5rem; }}
+        .whitespace-nowrap {{ white-space: nowrap; }}
+        .overflow-hidden {{ overflow: hidden; }}
+        .text-ellipsis {{ text-overflow: ellipsis; }}
+        .relative {{ position: relative; }}
+        .absolute {{ position: absolute; }}
+        .inset-0 {{ top: 0; right: 0; bottom: 0; left: 0; }}
+        .inset-y-0 {{ top: 0; bottom: 0; }}
+        .top-0 {{ top: 0; }}
+        .left-0 {{ left: 0; }}
+        .right-0 {{ right: 0; }}
+        .left-1\/2 {{ left: 50%; }}
+        .transform {{ --tw-translate-x: 0; --tw-translate-y: 0; transform: translate(var(--tw-translate-x), var(--tw-translate-y)); }}
+        .-translate-x-1\/2 {{ --tw-translate-x: -50%; transform: translate(var(--tw-translate-x), var(--tw-translate-y)); }}
+        .block {{ display: block; }}
+        .inline-block {{ display: inline-block; }}
+        .hidden {{ display: none; }}
+        .pointer-events-none {{ pointer-events: none; }}
+        .cursor-pointer {{ cursor: pointer; }}
+        .col-span-full {{ grid-column: 1 / -1; }}
+        .transition {{ transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }}
+        .transition-colors {{ transition-property: color, background-color, border-color, text-decoration-color, fill, stroke; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }}
+        .transition-shadow {{ transition-property: box-shadow; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }}
+        .duration-150 {{ transition-duration: 150ms; }}
+        .ease-in-out {{ transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }}
+        
+        /* Focus states */
+        .focus\:outline-none:focus {{ outline: 2px solid transparent; outline-offset: 2px; }}
+        .focus\:placeholder-gray-400:focus::placeholder {{ color: #9CA3AF; }}
+        .focus\:border-amber-500:focus {{ border-color: #F59E0B; }}
+        .focus\:border-green-500:focus {{ border-color: #10B981; }}
+        .focus\:ring-1:focus {{ --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color); --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color); box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000); }}
+        .focus\:ring-amber-500:focus {{ --tw-ring-color: #F59E0B; }}
+        .focus\:ring-green-500:focus {{ --tw-ring-color: #10B981; }}
+        
+        /* Hover states */
+        .hover\:text-white:hover {{ color: #fff; }}
+        .hover\:shadow-xl:hover {{ box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); }}
+        
+        /* Group states */
+        .group:focus-within .group-focus-within\:text-amber-400 {{ color: #FBBF24; }}
+        .group:focus-within .group-focus-within\:text-green-400 {{ color: #34D399; }}
+        
+        /* Placeholder */
+        .placeholder-gray-500::placeholder {{ color: #6B7280; }}
+        
+        /* Complex combinations */
+        .bg-amber-900.bg-opacity-30 {{ background-color: rgba(120, 53, 15, 0.3); }}
+        
+        /* Responsive */
+        @media (min-width: 640px) {{
+            .sm\:text-lg {{ font-size: 1.125rem; line-height: 1.75rem; }}
+            .sm\:text-left {{ text-align: left; }}
+        }}
+        @media (min-width: 768px) {{
+            .md\:text-left {{ text-align: left; }}
+        }}
+        @media (min-width: 1024px) {{
+            .lg\:flex-row {{ flex-direction: row; }}
+        }}
+        
         .fade-in {{
             animation: fadeIn 0.3s ease-in-out;
         }}
@@ -154,15 +373,15 @@ fn main() -> wry::Result<()> {
 
         .gpu-module.active {{
             transform: scale(1.05);
-            border-color: #ef4444;
-            box-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+            border-color: #F59E0B;
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.6);
             z-index: 10;
         }}
         .gpu-module.active .gpu-plate {{
-            background: linear-gradient(180deg, #fecaca 0%, #fee2e2 50%, #f87171 100%);
+            background: linear-gradient(180deg, #FEF3C7 0%, #FCD34D 50%, #FBBF24 100%);
         }}
         .gpu-module.active .bus-id {{
-            color: #991b1b;
+            color: #78350F;
             text-shadow: 0 1px 0 rgba(255,255,255,0.4);
         }}
 
@@ -219,46 +438,48 @@ fn main() -> wry::Result<()> {
 
     <div class="flex flex-col lg:flex-row w-full max-w-7xl gap-8 items-start justify-center">
         
-        <div class="w-full max-w-lg flex-shrink-0">
+        <div class="w-full max-w-2xl flex-shrink-0">
             <h3 class="text-gray-400 font-bold mb-6 text-center text-lg tracking-wide uppercase">GPU 物理位置示意图</h3>
             
             <div class="flex items-center justify-center gap-6">
                 
-                <div class="flex flex-col items-center justify-center h-full text-gray-500 font-bold text-lg">
-                    <div class="border-r-2 border-gray-700 pr-3 h-80 flex items-center writing-vertical-rl">
+                <!-- Rear Label -->
+                <div class="flex flex-col justify-center h-full">
+                    <div class="writing-vertical-rl text-gray-500 font-bold text-lg tracking-widest opacity-80">
                         后 (Rear)
                     </div>
                 </div>
 
-                <div class="bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 flex-1 relative">
-                    <div class="absolute top-0 left-1/2 transform -translate-x-1/2 w-1/3 h-1 bg-gray-700 rounded-b"></div>
-
-                    <div id="gpuGrid" class="grid grid-cols-2 gap-x-4 gap-y-3 text-center">
+                <!-- GPU Grid Container -->
+                <div class="bg-[#181a20] p-6 rounded-2xl border border-gray-700 shadow-2xl w-full">
+                    <div id="gpuGrid" class="grid grid-cols-2 gap-4 w-full">
+                        {gpu_grid_html}
                     </div>
                 </div>
 
-                <div class="flex flex-col items-center justify-center h-full text-gray-500 font-bold text-lg">
-                    <div class="border-l-2 border-gray-700 pl-3 h-80 flex items-center writing-vertical-rl">
+                <!-- Front Label -->
+                <div class="flex flex-col justify-center h-full">
+                    <div class="writing-vertical-rl text-gray-500 font-bold text-lg tracking-widest opacity-80">
                         前 (Front)
                     </div>
                 </div>
 
             </div>
             
-            <p class="text-xs text-gray-500 mt-4 text-center">* 红色高亮表示当前查询匹配的 GPU 位置</p>
+            <p class="text-xs text-gray-500 mt-4 text-center">* 金色高亮表示当前查询匹配的 GPU 位置</p>
         </div>
 
-        <div class="flex-1 w-full">
+        <div class="flex-1 w-full max-w-md">
             <h3 class="text-gray-400 font-bold mb-4 text-center md:text-left text-lg tracking-wide uppercase">查询结果详情</h3>
-            <div id="resultsContainer" class="grid grid-cols-1 gap-4">
+            <div id="resultsContainer" class="flex flex-col gap-4">
                 <div class="bg-gray-800 rounded-xl border border-gray-700 p-10 text-center text-gray-500 italic shadow-inner text-xl">
                     请输入查询条件以显示详细信息...
                 </div>
             </div>
 
-            <div class="mt-8 text-base text-gray-400 bg-gray-800 p-6 rounded-xl shadow-md border border-gray-700">
+            <div class="mt-8 text-sm text-gray-400 bg-gray-800 p-6 rounded-xl shadow-md border border-gray-700">
                 <h3 class="font-bold text-gray-200 mb-3 border-b border-gray-600 pb-2 text-lg">字段说明:</h3>
-                <ul class="space-y-2 list-disc list-inside text-sm">
+                <ul class="space-y-2 list-disc list-inside text-xs">
                     <li><span class="font-semibold text-gray-300">Minor Number:</span> 操作系统内的设备ID</li>
                     <li><span class="font-semibold text-gray-300">Module ID:</span> GPU模块的物理ID</li>
                     <li><span class="font-semibold text-gray-300">Slot:</span> GPU所在的物理槽位</li>
@@ -286,40 +507,11 @@ fn main() -> wry::Result<()> {
         const searchInput = document.getElementById('searchInput');
         const resultsContainer = document.getElementById('resultsContainer');
         const clearBtn = document.getElementById('clearBtn');
-        const gpuGrid = document.getElementById('gpuGrid');
-
-        function renderGpuGrid() {{
-            gpuGrid.innerHTML = '';
-            
-            gpuLayout.forEach(moduleId => {{
-                const gpu = gpuData.find(g => g.module_id === moduleId);
-                if (!gpu) return;
-
-                const gpuDiv = document.createElement('div');
-                gpuDiv.className = 'gpu-module rounded-lg p-2 flex flex-col items-center justify-center h-24';
-                gpuDiv.dataset.moduleId = moduleId;
-                
-                const gpuNumber = moduleId.replace('gpu', '');
-                const slotNumber = gpu.slot.replace('s', '');
-                
-                gpuDiv.innerHTML = `
-                    <div class="gpu-plate w-full h-full rounded flex flex-col items-center justify-center relative">
-                        <div class="screw screw-tl"></div><div class="screw screw-tr"></div><div class="screw screw-bl"></div><div class="screw screw-br"></div>
-                        <div class="flex items-center gap-1 mb-0.5 opacity-60"><svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 2c2.39 0 4.6.83 6.36 2.21l-2.2 3.81c-1.14-.77-2.52-1.22-4.16-1.22-3.31 0-6 2.69-6 6s2.69 6 6 6c1.64 0 3.02-.45 4.16-1.22l2.2 3.81C16.6 23.17 14.39 24 12 24 5.37 24 0 18.63 0 12S5.37 0 12 0z"/></svg><span class="text-[10px] font-bold tracking-widest text-gray-600">NVIDIA</span></div>
-                        <span class="bus-id text-2xl text-gray-800 font-black tracking-wider font-mono">${{gpu.bus_id}}</span>
-                        <div class="flex flex-col leading-tight mt-0.5"><span class="text-xs font-bold text-gray-700">GPU ${{gpuNumber}}</span><span class="text-[9px] text-gray-500">Slot ${{slotNumber}}</span></div>
-                    </div>
-                `;
-                
-                gpuGrid.appendChild(gpuDiv);
-            }});
-        }}
 
         function performSearch(query) {{
+            // Reset highlights
+            document.querySelectorAll('.gpu-module').forEach(el => el.classList.remove('active'));
             resultsContainer.innerHTML = '';
-            
-            const visualBoxes = document.querySelectorAll('.gpu-module');
-            visualBoxes.forEach(box => box.classList.remove('active'));
 
             if (!query) {{
                 clearBtn.classList.add('hidden');
@@ -336,7 +528,7 @@ fn main() -> wry::Result<()> {
 
             if (matches.length === 0) {{
                 resultsContainer.innerHTML = `
-                    <div class="col-span-full text-center py-10 text-gray-400 bg-gray-800 rounded-lg shadow border border-gray-700 text-xl">
+                    <div class="col-span-full text-center py-10 text-red-500 bg-red-900 bg-opacity-20 rounded-lg shadow border border-red-500 text-xl">
                         <p>未找到匹配项: "${{query}}"</p>
                     </div>
                 `;
@@ -361,7 +553,7 @@ fn main() -> wry::Result<()> {
                         : 'text-gray-200 font-semibold';
 
                     htmlContent += `
-                        <div class="text-gray-400 flex items-center font-medium">${{fieldLabels[key]}}:</div>
+                        <div class="text-gray-400 flex items-center font-medium">${{fieldLabels[key] || key}}:</div>
                         <div class="text-right sm:text-left"><span class="${{valueClass}}">${{value}}</span></div>
                     `;
                 }}
@@ -372,21 +564,17 @@ fn main() -> wry::Result<()> {
             }});
         }}
 
-        searchInput.addEventListener('input', (e) => {{
-            performSearch(e.target.value);
-        }});
+        searchInput.addEventListener('input', (e) => performSearch(e.target.value));
 
         clearBtn.addEventListener('click', () => {{
             searchInput.value = '';
             performSearch('');
             searchInput.focus();
         }});
-
-        renderGpuGrid();
     </script>
 </body>
 </html>
-"#, gpu_data_json = gpu_data_json);
+"#, gpu_data_json = gpu_data_json, gpu_grid_html = gpu_grid_html);
 
     // 创建 WebView
     let _webview = WebViewBuilder::new(window)?
